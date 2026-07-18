@@ -8,7 +8,14 @@ const { processarMensagem } = require('./whatsapp');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// CORS — permite chamadas do app Fintrack
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.options('*', cors());
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -20,12 +27,6 @@ app.get('/', (req, res) => {
     status: 'ok',
     app: 'Fintrack Server',
     version: '1.0.0',
-    endpoints: [
-      'GET  /health',
-      'POST /pagamento/criar',
-      'POST /webhook/mercadopago',
-      'POST /webhook/whatsapp',
-    ],
   });
 });
 
@@ -39,6 +40,7 @@ app.get('/health', (req, res) => {
 app.post('/pagamento/criar', async (req, res) => {
   try {
     const { username, email } = req.body;
+    console.log('Criando pagamento para:', username);
 
     if (!username) {
       return res.status(400).json({ error: 'username obrigatório' });
@@ -50,90 +52,77 @@ app.post('/pagamento/criar', async (req, res) => {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
-    if (user.role === 'pro') {
+    if (user.role === 'pro' || user.role === 'admin') {
       return res.status(400).json({ error: 'Usuário já é Pro' });
     }
 
     // Cria preferência no Mercado Pago
     const preference = await criarPagamentoPro(username, email);
+    console.log('Preferência criada:', preference.id);
 
     res.json({
       success: true,
       preference_id: preference.id,
-      init_point: preference.init_point,       // URL de pagamento
-      sandbox_init_point: preference.sandbox_init_point, // URL de teste
+      init_point: preference.init_point,
+      sandbox_init_point: preference.sandbox_init_point,
     });
 
   } catch (err) {
-    console.error('Erro ao criar pagamento:', err);
+    console.error('Erro ao criar pagamento:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
 // ============================================================
-// WEBHOOK MERCADO PAGO — recebe notificação de pagamento
+// WEBHOOK MERCADO PAGO
 // ============================================================
 app.post('/webhook/mercadopago', async (req, res) => {
   try {
     const { type, data } = req.body;
-    console.log('Webhook MP recebido:', type, data?.id);
+    console.log('Webhook MP:', type, data?.id);
 
-    // Confirma recebimento imediatamente (MP exige resposta rápida)
     res.status(200).json({ received: true });
 
-    // Processa apenas pagamentos aprovados
     if (type !== 'payment') return;
 
     const payment = await getPayment(data.id);
-    console.log('Payment status:', payment.status, '| ref:', payment.external_reference);
+    console.log('Payment:', payment.status, '| ref:', payment.external_reference);
 
     if (payment.status !== 'approved') return;
 
-    // external_reference = username do Fintrack
     const username = payment.external_reference;
-    if (!username) {
-      console.error('Pagamento sem external_reference:', data.id);
-      return;
-    }
+    if (!username) return;
 
-    // Atualiza usuário para Pro no Firebase
     await upgradeUserToPro(username, data.id);
-    console.log(`🎉 ${username} agora é Pro! Pagamento: ${data.id}`);
+    console.log(`✅ ${username} agora é Pro!`);
 
   } catch (err) {
-    console.error('Erro no webhook MP:', err.message);
+    console.error('Erro webhook MP:', err.message);
   }
 });
 
 // ============================================================
-// WEBHOOK WHATSAPP (Z-API)
+// WEBHOOK WHATSAPP
 // ============================================================
 app.post('/webhook/whatsapp', async (req, res) => {
   try {
     res.status(200).json({ received: true });
 
     const body = req.body;
-    console.log('WhatsApp webhook:', JSON.stringify(body).slice(0, 200));
-
-    // Z-API format
     const phone = body.phone || body.from;
     const mensagem = body.text?.message || body.body || body.message;
 
-    if (!phone || !mensagem) return;
+    if (!phone || !mensagem || body.fromMe) return;
 
-    // Ignora mensagens do próprio bot (enviadas por nós)
-    if (body.fromMe) return;
-
-    // Processa mensagem
     await processarMensagem(phone, mensagem);
 
   } catch (err) {
-    console.error('Erro no webhook WhatsApp:', err.message);
+    console.error('Erro webhook WhatsApp:', err.message);
   }
 });
 
 // ============================================================
-// ROTA ADMIN — listar usuários (protegida)
+// ADMIN
 // ============================================================
 app.get('/admin/usuarios', async (req, res) => {
   const token = req.headers.authorization;
@@ -161,6 +150,7 @@ app.get('/admin/usuarios', async (req, res) => {
 // ============================================================
 app.listen(PORT, () => {
   console.log(`🚀 Fintrack Server rodando na porta ${PORT}`);
-  console.log(`   MP_ACCESS_TOKEN: ${process.env.MP_ACCESS_TOKEN ? '✅ configurado' : '❌ FALTANDO'}`);
-  console.log(`   FIREBASE: ${process.env.FIREBASE_PROJECT_ID ? '✅ configurado' : '❌ FALTANDO'}`);
+  console.log(`   MP_ACCESS_TOKEN: ${process.env.MP_ACCESS_TOKEN ? '✅' : '❌ FALTANDO'}`);
+  console.log(`   FIREBASE: ${process.env.FIREBASE_PROJECT_ID ? '✅' : '❌ FALTANDO'}`);
+  console.log(`   APP_URL: ${process.env.APP_URL || '❌ FALTANDO'}`);
 });
