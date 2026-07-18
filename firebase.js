@@ -32,7 +32,7 @@ async function getUserByWhatsApp(phone) {
   return null;
 }
 
-// Atualiza role do usuário para 'pro'
+// Atualiza role do usuário para 'pro' (usado também a cada renovação mensal automática)
 async function upgradeUserToPro(username, paymentId) {
   await db.ref(`accounts/${username}`).update({
     role: 'pro',
@@ -40,6 +40,64 @@ async function upgradeUserToPro(username, paymentId) {
     paymentId: paymentId || null,
   });
   console.log(`✅ Usuário ${username} atualizado para Pro`);
+}
+
+// Salva o e-mail e o ID da assinatura (preapproval) assim que ela é criada, ainda 'pending'
+async function salvarAssinaturaPendente(username, email, preapprovalId) {
+  await db.ref(`accounts/${username}`).update({
+    email,
+    preapprovalId,
+    subscriptionStatus: 'pending',
+  });
+}
+
+// Chamado quando o MP confirma que a assinatura foi autorizada pelo usuário
+// (primeira cobrança feita) — ativa o Pro e marca a renovação automática como ligada
+async function ativarAssinaturaPro(username, preapprovalId) {
+  const ref = db.ref(`accounts/${username}`);
+  const snap = await ref.once('value');
+  const acc = snap.val() || {};
+  const updates = {
+    role: 'pro',
+    preapprovalId,
+    subscriptionStatus: 'authorized',
+    lastRenewedAt: Date.now(),
+  };
+  if (!acc.proSince) updates.proSince = Date.now();
+  await ref.update(updates);
+  console.log(`✅ Assinatura ativada para ${username} (renovação automática ligada)`);
+}
+
+// Chamado a cada cobrança mensal aprovada — só atualiza o carimbo de renovação
+async function registrarRenovacaoPro(username, cobrancaId) {
+  await db.ref(`accounts/${username}`).update({
+    role: 'pro',
+    subscriptionStatus: 'authorized',
+    lastRenewedAt: Date.now(),
+    lastCobrancaId: cobrancaId || null,
+  });
+  console.log(`🔁 Renovação mensal registrada para ${username}`);
+}
+
+// Chamado quando a assinatura é cancelada (pelo usuário ou por falha de pagamento repetida)
+async function downgradeUserToFree(username, motivo) {
+  await db.ref(`accounts/${username}`).update({
+    role: 'free',
+    subscriptionStatus: motivo || 'cancelled',
+  });
+  console.log(`⬇️ Usuário ${username} voltou para Free (${motivo || 'cancelled'})`);
+}
+
+// Busca todas as contas que têm um determinado preapprovalId (usado como fallback no webhook)
+async function getUserByPreapprovalId(preapprovalId) {
+  const snap = await db.ref('accounts').once('value');
+  const accounts = snap.val() || {};
+  for (const [username, data] of Object.entries(accounts)) {
+    if (data.preapprovalId === preapprovalId) {
+      return { username, ...data };
+    }
+  }
+  return null;
 }
 
 // Busca dados financeiros do usuário
@@ -70,4 +128,9 @@ module.exports = {
   upgradeUserToPro,
   getUserData,
   saveLancamento,
+  salvarAssinaturaPendente,
+  ativarAssinaturaPro,
+  registrarRenovacaoPro,
+  downgradeUserToFree,
+  getUserByPreapprovalId,
 };
