@@ -1,0 +1,18 @@
+{
+  "name": "fintrack-server",
+  "version": "1.0.0",
+  "description": "Servidor Fintrack - Mercado Pago + WhatsApp Bot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "firebase-admin": "^11.11.0",
+    "mercadopago": "^2.0.6",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "cors": "^2.8.5"
+  }
+}
