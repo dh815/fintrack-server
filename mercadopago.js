@@ -1,288 +1,106 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const {
-  criarPagamentoPro, getPayment,
-  criarAssinaturaPro, getAssinatura, cancelarAssinatura, getCobrancaAssinatura,
-} = require('./mercadopago');
-const {
-  upgradeUserToPro, getUser,
-  salvarAssinaturaPendente, ativarAssinaturaPro, registrarRenovacaoPro,
-  downgradeUserToFree, getUserByPreapprovalId,
-} = require('./firebase');
-const { processarMensagem } = require('./whatsapp');
+const axios = require('axios');
+const { MercadoPagoConfig, Preference, Payment, PreApproval } = require('mercadopago');
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+const client = new MercadoPagoConfig({
+  accessToken: process.env.MP_ACCESS_TOKEN,
+});
 
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+const PRO_PRECO = 29.0;
 
 // ============================================================
-// HEALTH CHECK
+// ASSINATURA RECORRENTE (Preapproval) — cobrança automática mensal
 // ============================================================
-app.get('/', (req, res) => {
-  res.json({
-    status: 'ok',
-    app: 'Fintrack Server',
-    version: '1.0.0',
-    endpoints: [
-      'GET  /health',
-      'POST /assinatura/criar',
-      'POST /assinatura/cancelar',
-      'POST /pagamento/criar',
-      'POST /webhook/mercadopago',
-      'POST /webhook/whatsapp',
-    ],
+
+// Cria uma assinatura recorrente. O usuário é redirecionado ao init_point,
+// autoriza o pagamento uma única vez e o Mercado Pago cobra sozinho todo mês.
+async function criarAssinaturaPro(username, email) {
+  const preapproval = new PreApproval(client);
+
+  const result = await preapproval.create({
+    body: {
+      reason: 'Fintrack Pro — Assinatura Mensal',
+      external_reference: username, // usado pra identificar o usuário nos webhooks
+      payer_email: email,
+      back_url: process.env.FINTRACK_URL,
+      auto_recurring: {
+        frequency: 1,
+        frequency_type: 'months',
+        transaction_amount: PRO_PRECO,
+        currency_id: 'BRL',
+      },
+    },
   });
-});
 
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+  return result; // contém id, init_point, status ('pending' até o usuário autorizar)
+}
 
-// ============================================================
-// CRIAR LINK DE PAGAMENTO MERCADO PAGO
-// ============================================================
-app.post('/pagamento/criar', async (req, res) => {
-  try {
-    const { username, email } = req.body;
+// Busca uma assinatura (preapproval) pelo ID — usado no webhook pra saber o status atual
+async function getAssinatura(id) {
+  const preapproval = new PreApproval(client);
+  return await preapproval.get({ id });
+}
 
-    if (!username) {
-      return res.status(400).json({ error: 'username obrigatório' });
-    }
+// Cancela a assinatura recorrente no Mercado Pago (para de cobrar o cliente)
+async function cancelarAssinatura(id) {
+  const preapproval = new PreApproval(client);
+  return await preapproval.update({ id, body: { status: 'cancelled' } });
+}
 
-    // Verifica se usuário existe
-    const user = await getUser(username);
-    if (!user) {
-      return res.status(404).json({ error: 'Usuário não encontrado' });
-    }
-
-    if (user.role === 'pro') {
-      return res.status(400).json({ error: 'Usuário já é Pro' });
-    }
-
-    // Cria preferência no Mercado Pago
-    const preference = await criarPagamentoPro(username, email);
-
-    res.json({
-      success: true,
-      preference_id: preference.id,
-      init_point: preference.init_point,       // URL de pagamento
-      sandbox_init_point: preference.sandbox_init_point, // URL de teste
-    });
-
-  } catch (err) {
-    console.error('Erro ao criar pagamento:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
+// Busca uma cobrança individual gerada por uma assinatura recorrente
+// (não existe classe dedicada no SDK ainda, então chamamos a API direto)
+async function getCobrancaAssinatura(id) {
+  const resp = await axios.get(`https://api.mercadopago.com/authorized_payments/${id}`, {
+    headers: { Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}` },
+  });
+  return resp.data;
+}
 
 // ============================================================
-// CRIAR ASSINATURA RECORRENTE (renovação automática mensal)
+// PAGAMENTO ÚNICO (legado — mantido apenas para compatibilidade)
 // ============================================================
-app.post('/assinatura/criar', async (req, res) => {
-  try {
-    const { username, email } = req.body;
+async function criarPagamentoPro(username, email) {
+  const preference = new Preference(client);
 
-    if (!username || !email) {
-      return res.status(400).json({ error: 'username e email são obrigatórios' });
-    }
+  const result = await preference.create({
+    body: {
+      items: [
+        {
+          id: 'fintrack-pro-mensal',
+          title: 'Fintrack Pro — Acesso Mensal',
+          description: 'Controle financeiro inteligente com IA',
+          quantity: 1,
+          currency_id: 'BRL',
+          unit_price: PRO_PRECO,
+        },
+      ],
+      payer: {
+        email: email || undefined,
+      },
+      external_reference: username,
+      back_urls: {
+        success: `${process.env.FINTRACK_URL}?pagamento=sucesso`,
+        failure: `${process.env.FINTRACK_URL}?pagamento=falha`,
+        pending: `${process.env.FINTRACK_URL}?pagamento=pendente`,
+      },
+      auto_return: 'approved',
+      notification_url: `${process.env.APP_URL}/webhook/mercadopago`,
+      statement_descriptor: 'FINTRACK PRO',
+    },
+  });
 
-    const user = await getUser(username);
-    if (!user) {
-      return res.status(404).json({ error: 'Usuário não encontrado' });
-    }
+  return result;
+}
 
-    if (user.role === 'pro' || user.role === 'admin') {
-      return res.status(400).json({ error: 'Usuário já é Pro' });
-    }
+async function getPayment(paymentId) {
+  const payment = new Payment(client);
+  return await payment.get({ id: paymentId });
+}
 
-    // Cria a assinatura no Mercado Pago (usuário autoriza uma vez, cobrança é automática depois)
-    const assinatura = await criarAssinaturaPro(username, email);
-    await salvarAssinaturaPendente(username, email, assinatura.id);
-
-    res.json({
-      success: true,
-      preapproval_id: assinatura.id,
-      init_point: assinatura.init_point,
-    });
-
-  } catch (err) {
-    console.error(`Erro ao criar assinatura (username=${req.body.username}, email=${req.body.email}):`, err.message || err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ============================================================
-// CANCELAR ASSINATURA RECORRENTE — para de cobrar automaticamente
-// ============================================================
-app.post('/assinatura/cancelar', async (req, res) => {
-  try {
-    const { username } = req.body;
-    if (!username) {
-      return res.status(400).json({ error: 'username obrigatório' });
-    }
-
-    const user = await getUser(username);
-    if (!user || !user.preapprovalId) {
-      return res.status(400).json({ error: 'Este usuário não tem assinatura ativa' });
-    }
-
-    await cancelarAssinatura(user.preapprovalId);
-    await downgradeUserToFree(username, 'cancelled_by_user');
-
-    res.json({ success: true });
-
-  } catch (err) {
-    console.error('Erro ao cancelar assinatura:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ============================================================
-// WEBHOOK MERCADO PAGO — recebe notificação de pagamento
-// ============================================================
-app.post('/webhook/mercadopago', async (req, res) => {
-  try {
-    // MP às vezes manda "type", às vezes "topic" (formato legado) — cobrimos os dois
-    const type = req.body.type || req.body.topic;
-    const data = req.body.data || { id: req.query['data.id'] || req.query.id };
-    console.log('Webhook MP recebido:', type, data?.id);
-
-    // Confirma recebimento imediatamente (MP exige resposta rápida)
-    res.status(200).json({ received: true });
-
-    // ---- ASSINATURA CRIADA / ATUALIZADA (autorizada, pausada ou cancelada) ----
-    if (type === 'subscription_preapproval' || type === 'preapproval') {
-      const assinatura = await getAssinatura(data.id);
-      const username = assinatura.external_reference;
-      if (!username) {
-        console.error('Assinatura sem external_reference:', data.id);
-        return;
-      }
-
-      if (assinatura.status === 'authorized') {
-        await ativarAssinaturaPro(username, data.id);
-        console.log(`🎉 ${username} agora é Pro com renovação automática! Assinatura: ${data.id}`);
-      } else if (assinatura.status === 'cancelled' || assinatura.status === 'paused') {
-        await downgradeUserToFree(username, assinatura.status);
-        console.log(`⏸️ Assinatura de ${username} está ${assinatura.status}`);
-      }
-      return;
-    }
-
-    // ---- COBRANÇA MENSAL RECORRENTE PROCESSADA ----
-    if (type === 'subscription_authorized_payment') {
-      const cobranca = await getCobrancaAssinatura(data.id);
-      console.log('Cobrança recorrente:', cobranca.status, '| preapproval:', cobranca.preapproval_id);
-
-      // Descobre o username a partir da assinatura vinculada
-      let username = null;
-      const assinatura = await getAssinatura(cobranca.preapproval_id).catch(() => null);
-      if (assinatura?.external_reference) {
-        username = assinatura.external_reference;
-      } else {
-        const user = await getUserByPreapprovalId(cobranca.preapproval_id);
-        username = user?.username || null;
-      }
-      if (!username) {
-        console.error('Cobrança sem usuário identificável:', data.id);
-        return;
-      }
-
-      if (cobranca.status === 'approved' || cobranca.status === 'processed') {
-        await registrarRenovacaoPro(username, data.id);
-        console.log(`🔁 Renovação mensal de ${username} confirmada.`);
-      } else if (cobranca.status === 'rejected') {
-        // O MP tenta novamente automaticamente por alguns dias antes de cancelar a assinatura.
-        // Quando ele desistir de vez, chega um webhook subscription_preapproval com status cancelled.
-        console.warn(`⚠️ Cobrança recusada para ${username}. MP tentará novamente automaticamente.`);
-      }
-      return;
-    }
-
-    // ---- FLUXO ANTIGO: PAGAMENTO ÚNICO (mantido para compatibilidade) ----
-    if (type === 'payment') {
-      const payment = await getPayment(data.id);
-      console.log('Payment status:', payment.status, '| ref:', payment.external_reference);
-
-      if (payment.status !== 'approved') return;
-
-      const username = payment.external_reference;
-      if (!username) {
-        console.error('Pagamento sem external_reference:', data.id);
-        return;
-      }
-
-      await upgradeUserToPro(username, data.id);
-      console.log(`🎉 ${username} agora é Pro! Pagamento: ${data.id}`);
-    }
-
-  } catch (err) {
-    console.error('Erro no webhook MP:', err.message);
-  }
-});
-
-// ============================================================
-// WEBHOOK WHATSAPP (Z-API)
-// ============================================================
-app.post('/webhook/whatsapp', async (req, res) => {
-  try {
-    res.status(200).json({ received: true });
-
-    const body = req.body;
-    console.log('WhatsApp webhook:', JSON.stringify(body).slice(0, 200));
-
-    // Z-API format
-    const phone = body.phone || body.from;
-    const mensagem = body.text?.message || body.body || body.message;
-
-    if (!phone || !mensagem) return;
-
-    // Ignora mensagens do próprio bot (enviadas por nós)
-    if (body.fromMe) return;
-
-    // Processa mensagem
-    await processarMensagem(phone, mensagem);
-
-  } catch (err) {
-    console.error('Erro no webhook WhatsApp:', err.message);
-  }
-});
-
-// ============================================================
-// ROTA ADMIN — listar usuários (protegida)
-// ============================================================
-app.get('/admin/usuarios', async (req, res) => {
-  const token = req.headers.authorization;
-  if (token !== `Bearer ${process.env.ADMIN_TOKEN}`) {
-    return res.status(401).json({ error: 'Não autorizado' });
-  }
-
-  const { db } = require('./firebase');
-  const snap = await db.ref('accounts').once('value');
-  const accounts = snap.val() || {};
-
-  const lista = Object.entries(accounts).map(([username, data]) => ({
-    username,
-    nome: data.n,
-    role: data.role || 'free',
-    whatsapp: data.whatsapp || null,
-    proSince: data.proSince ? new Date(data.proSince).toLocaleDateString('pt-BR') : null,
-    subscriptionStatus: data.subscriptionStatus || null,
-    lastRenewedAt: data.lastRenewedAt ? new Date(data.lastRenewedAt).toLocaleDateString('pt-BR') : null,
-  }));
-
-  res.json({ total: lista.length, usuarios: lista });
-});
-
-// ============================================================
-// START
-// ============================================================
-app.listen(PORT, () => {
-  console.log(`🚀 Fintrack Server rodando na porta ${PORT}`);
-  console.log(`   MP_ACCESS_TOKEN: ${process.env.MP_ACCESS_TOKEN ? '✅ configurado' : '❌ FALTANDO'}`);
-  console.log(`   FIREBASE: ${process.env.FIREBASE_PROJECT_ID ? '✅ configurado' : '❌ FALTANDO'}`);
-});
+module.exports = {
+  criarAssinaturaPro,
+  getAssinatura,
+  cancelarAssinatura,
+  getCobrancaAssinatura,
+  criarPagamentoPro,
+  getPayment,
+};
