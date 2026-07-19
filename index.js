@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const cron = require('node-cron');
 const {
   criarPagamentoPro, getPayment,
   criarAssinaturaPro, getAssinatura, cancelarAssinatura, getCobrancaAssinatura,
@@ -11,6 +12,7 @@ const {
   downgradeUserToFree, getUserByPreapprovalId,
 } = require('./firebase');
 const { processarMensagem } = require('./whatsapp');
+const { verificarVencimentos } = require('./lembretes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -34,6 +36,7 @@ app.get('/', (req, res) => {
       'POST /pagamento/criar',
       'POST /webhook/mercadopago',
       'POST /webhook/whatsapp',
+      'POST /admin/checar-vencimentos',
     ],
   });
 });
@@ -110,7 +113,7 @@ app.post('/assinatura/criar', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Erro ao criar assinatura:', err);
+    console.error(`Erro ao criar assinatura (username=${req.body.username}, email=${req.body.email}):`, err.message || err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -279,6 +282,24 @@ app.get('/admin/usuarios', async (req, res) => {
 });
 
 // ============================================================
+// LEMBRETE DE VENCIMENTO — checagem manual (protegida), útil para testar
+// sem esperar o horário agendado
+// ============================================================
+app.post('/admin/checar-vencimentos', async (req, res) => {
+  const token = req.headers.authorization;
+  if (token !== `Bearer ${process.env.ADMIN_TOKEN}`) {
+    return res.status(401).json({ error: 'Não autorizado' });
+  }
+  try {
+    const total = await verificarVencimentos();
+    res.json({ success: true, lembretesEnviados: total });
+  } catch (err) {
+    console.error('Erro ao checar vencimentos:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
 // START
 // ============================================================
 app.listen(PORT, () => {
@@ -286,3 +307,9 @@ app.listen(PORT, () => {
   console.log(`   MP_ACCESS_TOKEN: ${process.env.MP_ACCESS_TOKEN ? '✅ configurado' : '❌ FALTANDO'}`);
   console.log(`   FIREBASE: ${process.env.FIREBASE_PROJECT_ID ? '✅ configurado' : '❌ FALTANDO'}`);
 });
+
+// Roda todo dia às 9h (horário de Brasília) — verifica parcelas vencendo
+// em 3 dias ou no próprio dia, e avisa por WhatsApp os usuários Pro.
+cron.schedule('0 9 * * *', () => {
+  verificarVencimentos().catch((err) => console.error('Erro no cron de vencimentos:', err.message));
+}, { timezone: 'America/Sao_Paulo' });
