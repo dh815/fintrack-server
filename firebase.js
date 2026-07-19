@@ -121,6 +121,31 @@ async function saveLancamento(username, tipo, dados) {
   console.log(`✅ ${tipo} salvo para ${username}`);
 }
 
+// Busca todos os usuários Pro (ou admin) que já vincularam um número de WhatsApp
+// — usado pelo lembrete automático de vencimento de parcelas
+async function getProUsersComWhatsapp() {
+  const snap = await db.ref('accounts').once('value');
+  const accounts = snap.val() || {};
+  return Object.entries(accounts)
+    .filter(([, data]) => (data.role === 'pro' || data.role === 'admin') && data.whatsapp)
+    .map(([username, data]) => ({ username, whatsapp: data.whatsapp }));
+}
+
+// Marca uma parcela específica como "já avisada" (3 dias antes ou no dia),
+// pra não mandar o mesmo lembrete de novo no dia seguinte
+async function marcarLembreteEnviado(username, parcelaId, seq, tipo) {
+  const ref = db.ref(`users/${username}/parc`);
+  const snap = await ref.once('value');
+  const arr = snap.val() || [];
+  const idxParc = arr.findIndex((p) => p.id === parcelaId);
+  if (idxParc === -1) return;
+  const idxItem = (arr[idxParc].pars || []).findIndex((p) => p.seq === seq);
+  if (idxItem === -1) return;
+  const campo = tipo === '3dias' ? 'lembrete3d' : 'lembreteDia';
+  arr[idxParc].pars[idxItem][campo] = true;
+  await ref.set(arr);
+}
+
 module.exports = {
   db,
   getUser,
@@ -133,4 +158,6 @@ module.exports = {
   registrarRenovacaoPro,
   downgradeUserToFree,
   getUserByPreapprovalId,
+  getProUsersComWhatsapp,
+  marcarLembreteEnviado,
 };
