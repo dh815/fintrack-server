@@ -13,13 +13,14 @@ const {
 } = require('./firebase');
 const { processarMensagem } = require('./whatsapp');
 const { verificarVencimentos } = require('./lembretes');
+const { analisarImagem } = require('./scanner');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 // ============================================================
 // HEALTH CHECK
@@ -34,6 +35,7 @@ app.get('/', (req, res) => {
       'POST /assinatura/criar',
       'POST /assinatura/cancelar',
       'POST /pagamento/criar',
+      'POST /scanner/analisar',
       'POST /webhook/mercadopago',
       'POST /webhook/whatsapp',
       'POST /admin/checar-vencimentos',
@@ -279,6 +281,35 @@ app.get('/admin/usuarios', async (req, res) => {
   }));
 
   res.json({ total: lista.length, usuarios: lista });
+});
+
+// ============================================================
+// SCANNER (cupom/boleto) — chama a Claude API com a chave do servidor,
+// nunca exposta ao navegador. Exclusivo do plano Pro.
+// ============================================================
+app.post('/scanner/analisar', async (req, res) => {
+  try {
+    const { username, base64, mediaType, tipo } = req.body;
+
+    if (!username || !base64 || !tipo) {
+      return res.status(400).json({ error: 'username, base64 e tipo são obrigatórios' });
+    }
+
+    const user = await getUser(username);
+    if (!user) {
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+    if (user.role !== 'pro' && user.role !== 'admin') {
+      return res.status(403).json({ error: 'Scanner é exclusivo do plano Pro' });
+    }
+
+    const resultado = await analisarImagem(base64, mediaType || 'image/jpeg', tipo);
+    res.json({ success: true, resultado });
+
+  } catch (err) {
+    console.error(`Erro no scanner (username=${req.body.username}, tipo=${req.body.tipo}):`, err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ============================================================
