@@ -14,6 +14,7 @@ const {
 const { processarMensagem } = require('./whatsapp');
 const { verificarVencimentos } = require('./lembretes');
 const { analisarImagem } = require('./scanner');
+const { gerarToken, hashSenha, enviarEmailReset } = require('./reset');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -36,6 +37,8 @@ app.get('/', (req, res) => {
       'POST /assinatura/cancelar',
       'POST /pagamento/criar',
       'POST /scanner/analisar',
+      'POST /senha/solicitar',
+      'POST /senha/redefinir',
       'POST /webhook/mercadopago',
       'POST /webhook/whatsapp',
       'POST /admin/checar-vencimentos',
@@ -308,6 +311,71 @@ app.post('/scanner/analisar', async (req, res) => {
 
   } catch (err) {
     console.error(`Erro no scanner (username=${req.body.username}, tipo=${req.body.tipo}):`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// RECUPERAÇÃO DE SENHA — solicitar e confirmar via e-mail
+// ============================================================
+app.post('/senha/solicitar', async (req, res) => {
+  // Sempre responde sucesso, mesmo se o usuário não existir ou não tiver
+  // e-mail — evita que alguém descubra quais usernames existem no sistema.
+  res.json({ success: true });
+
+  try {
+    const { username } = req.body;
+    if (!username) return;
+
+    const user = await getUser(username);
+    if (!user || !user.email) {
+      console.log(`Solicitação de reset para conta sem e-mail ou inexistente: ${username}`);
+      return;
+    }
+
+    const token = gerarToken();
+    const { db } = require('./firebase');
+    await db.ref(`accounts/${username}`).update({
+      resetToken: token,
+      resetTokenExp: Date.now() + 60 * 60 * 1000, // 1 hora
+    });
+
+    await enviarEmailReset(user.email, username, token);
+    console.log(`✅ E-mail de recuperação enviado para ${username}`);
+  } catch (err) {
+    console.error('Erro ao processar solicitação de reset:', err.message);
+  }
+});
+
+app.post('/senha/redefinir', async (req, res) => {
+  try {
+    const { username, token, novaSenha } = req.body;
+    if (!username || !token || !novaSenha) {
+      return res.status(400).json({ error: 'Dados incompletos' });
+    }
+    if (novaSenha.length < 4) {
+      return res.status(400).json({ error: 'A senha deve ter pelo menos 4 caracteres' });
+    }
+
+    const user = await getUser(username);
+    if (!user || !user.resetToken || user.resetToken !== token) {
+      return res.status(400).json({ error: 'Link inválido ou expirado' });
+    }
+    if (!user.resetTokenExp || Date.now() > user.resetTokenExp) {
+      return res.status(400).json({ error: 'Link expirado. Solicite um novo.' });
+    }
+
+    const { db } = require('./firebase');
+    await db.ref(`accounts/${username}`).update({
+      p: hashSenha(novaSenha),
+      resetToken: null,
+      resetTokenExp: null,
+    });
+
+    console.log(`✅ Senha redefinida para ${username}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Erro ao redefinir senha:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
