@@ -327,6 +327,13 @@ app.post('/senha/solicitar', async (req, res) => {
     const { username } = req.body;
     if (!username) return;
 
+    // Firebase não aceita ".", "#", "$", "[", "]" em caminhos — se vier assim
+    // (por exemplo, alguém digitou o e-mail em vez do usuário), só ignora.
+    if (/[.#$\[\]]/.test(username)) {
+      console.log(`Solicitação de reset com username inválido (parece e-mail?): ${username}`);
+      return;
+    }
+
     const user = await getUser(username);
     if (!user || !user.email) {
       console.log(`Solicitação de reset para conta sem e-mail ou inexistente: ${username}`);
@@ -355,6 +362,9 @@ app.post('/senha/redefinir', async (req, res) => {
     }
     if (novaSenha.length < 4) {
       return res.status(400).json({ error: 'A senha deve ter pelo menos 4 caracteres' });
+    }
+    if (/[.#$\[\]]/.test(username)) {
+      return res.status(400).json({ error: 'Link inválido ou expirado' });
     }
 
     const user = await getUser(username);
