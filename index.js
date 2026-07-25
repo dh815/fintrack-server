@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const cron = require('node-cron');
+const rateLimit = require('express-rate-limit');
 const {
   criarPagamentoPro, getPayment,
   criarAssinaturaPro, getAssinatura, cancelarAssinatura, getCobrancaAssinatura,
@@ -24,6 +25,46 @@ app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 // ============================================================
+// RATE LIMITING — protege contra abuso e gasto indevido de API
+// ============================================================
+// Limite geral: cobre qualquer rota não listada abaixo
+const limiteGeral = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas requisições. Tente novamente em alguns minutos.' },
+});
+app.use(limiteGeral);
+
+// Scanner gasta crédito da API da Anthropic a cada chamada — limite apertado
+const limiteScanner = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Limite de escaneamentos atingido. Tente novamente em alguns minutos.' },
+});
+
+// Recuperação de senha — evita spam de e-mail pro mesmo destinatário
+const limiteSenha = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas tentativas. Tente novamente em alguns minutos.' },
+});
+
+// Pagamento/assinatura — moderado, protege contra chamadas repetidas ao Mercado Pago
+const limitePagamento = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas tentativas. Tente novamente em alguns minutos.' },
+});
+
+// ============================================================
 // HEALTH CHECK
 // ============================================================
 app.get('/', (req, res) => {
@@ -39,6 +80,7 @@ app.get('/', (req, res) => {
       'POST /scanner/analisar',
       'POST /senha/solicitar',
       'POST /senha/redefinir',
+      'POST /conta/excluir',
       'POST /webhook/mercadopago',
       'POST /webhook/whatsapp',
       'POST /admin/checar-vencimentos',
@@ -53,7 +95,7 @@ app.get('/health', (req, res) => {
 // ============================================================
 // CRIAR LINK DE PAGAMENTO MERCADO PAGO
 // ============================================================
-app.post('/pagamento/criar', async (req, res) => {
+app.post('/pagamento/criar', limitePagamento, async (req, res) => {
   try {
     const { username, email } = req.body;
 
@@ -90,7 +132,7 @@ app.post('/pagamento/criar', async (req, res) => {
 // ============================================================
 // CRIAR ASSINATURA RECORRENTE (renovação automática mensal)
 // ============================================================
-app.post('/assinatura/criar', async (req, res) => {
+app.post('/assinatura/criar', limitePagamento, async (req, res) => {
   try {
     const { username, email } = req.body;
 
@@ -126,7 +168,7 @@ app.post('/assinatura/criar', async (req, res) => {
 // ============================================================
 // CANCELAR ASSINATURA RECORRENTE — para de cobrar automaticamente
 // ============================================================
-app.post('/assinatura/cancelar', async (req, res) => {
+app.post('/assinatura/cancelar', limitePagamento, async (req, res) => {
   try {
     const { username } = req.body;
     if (!username) {
@@ -290,7 +332,7 @@ app.get('/admin/usuarios', async (req, res) => {
 // SCANNER (cupom/boleto) — chama a Claude API com a chave do servidor,
 // nunca exposta ao navegador. Exclusivo do plano Pro.
 // ============================================================
-app.post('/scanner/analisar', async (req, res) => {
+app.post('/scanner/analisar', limiteScanner, async (req, res) => {
   try {
     const { username, base64, mediaType, tipo } = req.body;
 
@@ -318,7 +360,7 @@ app.post('/scanner/analisar', async (req, res) => {
 // ============================================================
 // RECUPERAÇÃO DE SENHA — solicitar e confirmar via e-mail
 // ============================================================
-app.post('/senha/solicitar', async (req, res) => {
+app.post('/senha/solicitar', limiteSenha, async (req, res) => {
   // Sempre responde sucesso, mesmo se o usuário não existir ou não tiver
   // e-mail — evita que alguém descubra quais usernames existem no sistema.
   res.json({ success: true });
@@ -354,7 +396,7 @@ app.post('/senha/solicitar', async (req, res) => {
   }
 });
 
-app.post('/senha/redefinir', async (req, res) => {
+app.post('/senha/redefinir', limiteSenha, async (req, res) => {
   try {
     const { username, token, novaSenha } = req.body;
     if (!username || !token || !novaSenha) {
@@ -386,6 +428,50 @@ app.post('/senha/redefinir', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Erro ao redefinir senha:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// EXCLUIR CONTA — apaga a conta e todos os dados financeiros.
+// Exige a senha atual como confirmação. Cancela assinatura ativa
+// no Mercado Pago antes de apagar, para não continuar cobrando
+// alguém que não tem mais conta.
+// ============================================================
+app.post('/conta/excluir', limiteSenha, async (req, res) => {
+  try {
+    const { username, senha } = req.body;
+    if (!username || !senha) {
+      return res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
+    }
+    if (/[.#$\[\]]/.test(username)) {
+      return res.status(400).json({ error: 'Usuário ou senha incorretos' });
+    }
+
+    const user = await getUser(username);
+    if (!user || user.p !== hashSenha(senha)) {
+      return res.status(400).json({ error: 'Usuário ou senha incorretos' });
+    }
+
+    // Cancela a assinatura recorrente, se houver, antes de apagar a conta
+    if (user.preapprovalId && user.subscriptionStatus === 'authorized') {
+      try {
+        await cancelarAssinatura(user.preapprovalId);
+        console.log(`Assinatura de ${username} cancelada antes da exclusão`);
+      } catch (err) {
+        console.error(`Erro ao cancelar assinatura de ${username} durante exclusão:`, err.message);
+        // segue com a exclusão mesmo assim — não deixa o usuário preso
+      }
+    }
+
+    const { db } = require('./firebase');
+    await db.ref(`accounts/${username}`).remove();
+    await db.ref(`users/${username}`).remove();
+
+    console.log(`🗑️ Conta excluída: ${username}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Erro ao excluir conta:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
