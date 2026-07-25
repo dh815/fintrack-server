@@ -18,16 +18,16 @@ async function enviarEmailReset(email, username, token) {
   await axios.post(
     'https://api.brevo.com/v3/smtp/email',
     {
-      sender: { email: process.env.BREVO_FROM, name: 'Fintrack' },
+      sender: { email: process.env.BREVO_FROM, name: 'Bolso Inteligente' },
       to: [{ email }],
-      subject: 'Redefinição de senha — Fintrack',
+      subject: 'Redefinição de senha — Bolso Inteligente',
       htmlContent: `
         <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; color: #1a1a1a;">
-          <h2 style="color:#00C896;">Fintrack</h2>
+          <h2 style="color:#16A34A;">Bolso Inteligente</h2>
           <p>Recebemos uma solicitação para redefinir a senha da conta <b>${username}</b>.</p>
           <p>Clique no botão abaixo para escolher uma nova senha. Este link expira em 1 hora.</p>
           <p style="margin: 28px 0;">
-            <a href="${link}" style="background:#00C896;color:#07090F;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;">Redefinir senha</a>
+            <a href="${link}" style="background:#16A34A;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;">Redefinir senha</a>
           </p>
           <p style="font-size:12px;color:#888;">Se você não solicitou isso, pode ignorar este e-mail com segurança — sua senha continua a mesma.</p>
         </div>
