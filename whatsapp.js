@@ -34,7 +34,7 @@ Dados do usuário este mês:
     {
       model: 'claude-sonnet-4-6',
       max_tokens: 500,
-      system: `Você é um assistente financeiro do app Fintrack. 
+      system: `Você é um assistente financeiro do app Bolso Inteligente. 
 Interprete mensagens do usuário e retorne JSON.
 
 ${contexto}
@@ -92,7 +92,7 @@ async function processarMensagem(phone, mensagem) {
 
   if (!usuario) {
     await enviarMensagem(phone,
-      `⚠️ Seu número não está vinculado ao Fintrack.\n\nAcesse o app e vá em *Minha Conta → WhatsApp* para vincular.`
+      `⚠️ Seu número não está vinculado ao Bolso Inteligente.\n\nAcesse o app e vá em *Perfil → WhatsApp* para vincular.`
     );
     return;
   }
