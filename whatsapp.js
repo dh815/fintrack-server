@@ -99,7 +99,7 @@ async function processarMensagem(phone, mensagem) {
 
   if (usuario.role === 'free') {
     await enviarMensagem(phone,
-      `⚡ O WhatsApp Bot é exclusivo do plano *Pro*.\n\nAssine em: https://dh815.github.io/fintrack`
+      `⚡ O WhatsApp Bot é exclusivo do plano *Pro*.\n\nAssine em: https://bolsointeligenteapp.com.br`
     );
     return;
   }
@@ -142,7 +142,7 @@ async function processarMensagem(phone, mensagem) {
     } else if (resultado.acao === 'gastos') {
       const sai = calcTotal(dadosUsuario?.sai);
       await enviarMensagem(phone,
-        `💸 *Gastos de ${new Date().toLocaleString('pt-BR', {month:'long'})}*\n\nTotal: ${fmt(sai)}\n\nAcesse o app para ver o detalhamento:\nhttps://dh815.github.io/fintrack`
+        `💸 *Gastos de ${new Date().toLocaleString('pt-BR', {month:'long'})}*\n\nTotal: ${fmt(sai)}\n\nAcesse o app para ver o detalhamento:\nhttps://bolsointeligenteapp.com.br`
       );
 
     } else {
