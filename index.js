@@ -16,6 +16,7 @@ const { processarMensagem } = require('./whatsapp');
 const { verificarVencimentos } = require('./lembretes');
 const { analisarImagem } = require('./scanner');
 const { gerarToken, hashSenha, enviarEmailReset } = require('./reset');
+const { senhaConfere, criarTokenLogin } = require('./auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -74,6 +75,8 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     endpoints: [
       'GET  /health',
+      'POST /auth/login',
+      'POST /auth/registrar',
       'POST /assinatura/criar',
       'POST /assinatura/cancelar',
       'POST /pagamento/criar',
@@ -438,6 +441,127 @@ app.post('/senha/redefinir', limiteSenha, async (req, res) => {
 // no Mercado Pago antes de apagar, para não continuar cobrando
 // alguém que não tem mais conta.
 // ============================================================
+// ============================================================
+// LOGIN E CADASTRO — verificação real de senha no servidor,
+// gerando um token de autenticação do Firebase vinculado ao
+// username (uid = username). Substitui o login anônimo.
+// ============================================================
+app.post('/auth/login', limiteSenha, async (req, res) => {
+  try {
+    const { username, senha } = req.body;
+    if (!username || !senha) {
+      return res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
+    }
+    if (/[.#$\[\]]/.test(username)) {
+      return res.status(400).json({ error: 'Usuário ou senha incorretos' });
+    }
+
+    const user = await getUser(username);
+    if (!user || !senhaConfere(senha, user.p)) {
+      return res.status(400).json({ error: 'Usuário ou senha incorretos' });
+    }
+
+    const { db } = require('./firebase');
+    // Migra silenciosamente senhas antigas em base64 para SHA-256
+    if (user.p !== hashSenha(senha)) {
+      await db.ref(`accounts/${username}`).update({ p: hashSenha(senha) });
+    }
+
+    const token = await criarTokenLogin(username);
+    res.json({
+      success: true,
+      token,
+      nome: user.n,
+      role: user.role || 'free',
+      firstAccess: !!user.firstAccess,
+    });
+  } catch (err) {
+    console.error('Erro no login:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/auth/registrar', limiteSenha, async (req, res) => {
+  try {
+    const { username, senha, nome } = req.body;
+    if (!username || !senha || !nome) {
+      return res.status(400).json({ error: 'Preencha todos os campos.' });
+    }
+    if (/[.#$\[\]]/.test(username)) {
+      return res.status(400).json({ error: 'Usuário não pode conter ". # $ [ ]"' });
+    }
+    if (senha.length < 4) {
+      return res.status(400).json({ error: 'Senha muito curta.' });
+    }
+
+    const existente = await getUser(username);
+    if (existente) {
+      return res.status(400).json({ error: 'Usuário já existe.' });
+    }
+
+    const { db } = require('./firebase');
+    await db.ref(`accounts/${username}`).set({
+      n: nome,
+      p: hashSenha(senha),
+      role: 'free',
+      createdAt: Date.now(),
+      termsAcceptedAt: Date.now(),
+    });
+
+    const token = await criarTokenLogin(username);
+    res.json({ success: true, token });
+  } catch (err) {
+    console.error('Erro no registro:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// ADMIN CRIAR ACESSO — permite que uma conta admin crie login
+// para outra pessoa. Precisa passar pelo servidor porque, com
+// as novas regras, ninguém mais escreve na conta de outro
+// usuário diretamente do navegador.
+// ============================================================
+app.post('/admin/criar-acesso', limiteSenha, async (req, res) => {
+  try {
+    const { adminUsername, nome, username, senha, whatsapp } = req.body;
+    if (!adminUsername || !nome || !username || !senha) {
+      return res.status(400).json({ error: 'Preencha todos os campos.' });
+    }
+    if (/[.#$\[\]]/.test(username) || /[.#$\[\]]/.test(adminUsername)) {
+      return res.status(400).json({ error: 'Usuário inválido.' });
+    }
+
+    const admin = await getUser(adminUsername);
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({ error: 'Não autorizado.' });
+    }
+
+    const existente = await getUser(username);
+    if (existente) {
+      return res.status(400).json({ error: 'Usuário já existe.' });
+    }
+
+    const { db } = require('./firebase');
+    const conta = {
+      n: nome,
+      p: hashSenha(senha),
+      role: 'user',
+      firstAccess: true,
+      createdBy: adminUsername,
+      createdAt: Date.now(),
+    };
+    if (whatsapp) conta.whatsapp = whatsapp;
+    await db.ref(`accounts/${username}`).set(conta);
+
+    console.log(`✅ Acesso criado por ${adminUsername} para ${username}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Erro ao criar acesso:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/conta/excluir', limiteSenha, async (req, res) => {
   try {
     const { username, senha } = req.body;
