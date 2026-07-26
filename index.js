@@ -15,7 +15,7 @@ const {
 const { processarMensagem } = require('./whatsapp');
 const { verificarVencimentos } = require('./lembretes');
 const { analisarImagem } = require('./scanner');
-const { gerarToken, hashSenha, enviarEmailReset } = require('./reset');
+const { gerarToken, hashSenha, enviarEmailReset, enviarEmailAssinaturaCancelada } = require('./reset');
 const { senhaConfere, criarTokenLogin } = require('./auth');
 
 const app = express();
@@ -222,6 +222,15 @@ app.post('/webhook/mercadopago', async (req, res) => {
       } else if (assinatura.status === 'cancelled' || assinatura.status === 'paused') {
         await downgradeUserToFree(username, assinatura.status);
         console.log(`⏸️ Assinatura de ${username} está ${assinatura.status}`);
+        try {
+          const user = await getUser(username);
+          if (user && user.email) {
+            await enviarEmailAssinaturaCancelada(user.email, username);
+            console.log(`✉️ E-mail de cancelamento enviado para ${username}`);
+          }
+        } catch (err) {
+          console.error(`Erro ao enviar e-mail de cancelamento para ${username}:`, err.message);
+        }
       }
       return;
     }
