@@ -42,4 +42,36 @@ async function enviarEmailReset(email, username, token) {
   );
 }
 
-module.exports = { gerarToken, hashSenha, enviarEmailReset };
+// Envia e-mail avisando que a assinatura Pro foi cancelada/pausada
+// automaticamente pelo Mercado Pago (ex: pagamento recusado) — o usuário
+// não teve nenhuma ação nisso, então precisa ser avisado.
+async function enviarEmailAssinaturaCancelada(email, username) {
+  await axios.post(
+    'https://api.brevo.com/v3/smtp/email',
+    {
+      sender: { email: process.env.BREVO_FROM, name: 'Bolso Inteligente' },
+      to: [{ email }],
+      subject: 'Sua assinatura Pro foi cancelada — Bolso Inteligente',
+      htmlContent: `
+        <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; color: #1a1a1a;">
+          <h2 style="color:#16A34A;">Bolso Inteligente</h2>
+          <p>Olá, ${username}!</p>
+          <p>Sua assinatura <b>Pro</b> foi cancelada automaticamente pelo Mercado Pago — isso geralmente acontece quando a cobrança do cartão não foi aprovada.</p>
+          <p>Sua conta voltou para o plano <b>Free</b>. Você não perdeu nenhum dado, mas alguns recursos (Scanner com IA, Cartão de crédito, Investimentos, Planejamento) ficam limitados até você assinar novamente.</p>
+          <p style="margin: 28px 0;">
+            <a href="${process.env.FINTRACK_URL}" style="background:#16A34A;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;">Reativar assinatura</a>
+          </p>
+          <p style="font-size:12px;color:#888;">Se você reconhece esse cancelamento e não quer reativar agora, pode ignorar este e-mail.</p>
+        </div>
+      `,
+    },
+    {
+      headers: {
+        'api-key': process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+}
+
+module.exports = { gerarToken, hashSenha, enviarEmailReset, enviarEmailAssinaturaCancelada };
