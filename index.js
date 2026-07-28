@@ -23,6 +23,12 @@ const { senhaConfere, criarTokenLogin } = require('./auth');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// O Railway (e a maioria dos serviços de hospedagem) coloca o servidor atrás
+// de um proxy reverso. Isso diz ao Express pra confiar no cabeçalho
+// X-Forwarded-For desse proxy, necessário pro rate limiting identificar o
+// IP real de cada visitante corretamente.
+app.set('trust proxy', 1);
+
 app.use(cors());
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
@@ -399,6 +405,9 @@ app.post('/assistente/interpretar', limiteScanner, async (req, res) => {
 
   } catch (err) {
     console.error(`Erro no assistente (username=${req.body.username}):`, err.message);
+    if (err.response) {
+      console.error('Detalhe da resposta da Anthropic:', JSON.stringify(err.response.data));
+    }
     res.status(500).json({ error: 'Não consegui entender esse comando. Tenta reformular?' });
   }
 });
