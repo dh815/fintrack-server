@@ -150,6 +150,9 @@ async function processarMensagem(phone, mensagem) {
 
   } catch (err) {
     console.error('Erro ao interpretar mensagem:', err.message);
+    if (err.response) {
+      console.error('Detalhe da resposta da Anthropic:', JSON.stringify(err.response.data));
+    }
     await enviarMensagem(phone,
       `❌ Não entendi. Tente:\n• "gastei 50 no almoço"\n• "recebi 3000 de salário"\n• "qual meu saldo?"`
     );
