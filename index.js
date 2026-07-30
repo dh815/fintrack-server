@@ -16,7 +16,6 @@ const {
 const { processarMensagem } = require('./whatsapp');
 const { verificarVencimentos } = require('./lembretes');
 const { analisarImagem } = require('./scanner');
-const { interpretarComando } = require('./assistente');
 const { gerarToken, hashSenha, enviarEmailReset, enviarEmailAssinaturaCancelada } = require('./reset');
 const { senhaConfere, criarTokenLogin } = require('./auth');
 
@@ -89,7 +88,6 @@ app.get('/', (req, res) => {
       'POST /assinatura/cancelar',
       'POST /pagamento/criar',
       'POST /scanner/analisar',
-      'POST /assistente/interpretar',
       'POST /senha/solicitar',
       'POST /senha/redefinir',
       'POST /conta/excluir',
@@ -304,19 +302,21 @@ app.post('/webhook/whatsapp', async (req, res) => {
     res.status(200).json({ received: true });
 
     const body = req.body;
-    console.log('WhatsApp webhook:', JSON.stringify(body).slice(0, 200));
+    console.log('WhatsApp webhook:', JSON.stringify(body).slice(0, 300));
 
-    // Z-API format
-    const phone = body.phone || body.from;
-    const mensagem = body.text?.message || body.body || body.message;
+    // Formato do Whapi.cloud: as mensagens chegam num array, pode vir mais de uma por chamada
+    const mensagens = body.messages || [];
 
-    if (!phone || !mensagem) return;
+    for (const msg of mensagens) {
+      if (msg.from_me) continue; // ignora mensagens enviadas por nós mesmos
+      if (msg.type !== 'text') continue; // por enquanto só tratamos texto
 
-    // Ignora mensagens do próprio bot (enviadas por nós)
-    if (body.fromMe) return;
+      const phone = msg.from;
+      const mensagem = msg.text && msg.text.body;
+      if (!phone || !mensagem) continue;
 
-    // Processa mensagem
-    await processarMensagem(phone, mensagem);
+      await processarMensagem(phone, mensagem);
+    }
 
   } catch (err) {
     console.error('Erro no webhook WhatsApp:', err.message);
@@ -375,40 +375,6 @@ app.post('/scanner/analisar', limiteScanner, async (req, res) => {
   } catch (err) {
     console.error(`Erro no scanner (username=${req.body.username}, tipo=${req.body.tipo}):`, err.message);
     res.status(500).json({ error: err.message });
-  }
-});
-
-// ============================================================
-// ASSISTENTE — interpreta comando em linguagem natural (texto ou
-// transcrição de voz) e devolve a ação estruturada que o app deve
-// executar. Exclusivo do plano Pro, mesma regra do scanner.
-// ============================================================
-app.post('/assistente/interpretar', limiteScanner, async (req, res) => {
-  try {
-    const { username, mensagem, categorias } = req.body;
-
-    if (!username || !mensagem) {
-      return res.status(400).json({ error: 'username e mensagem são obrigatórios' });
-    }
-
-    const user = await getUser(username);
-    if (!user) {
-      return res.status(404).json({ error: 'Usuário não encontrado' });
-    }
-    if (user.role !== 'pro' && user.role !== 'admin') {
-      return res.status(403).json({ error: 'Assistente é exclusivo do plano Pro' });
-    }
-
-    const hoje = new Date().toISOString().slice(0, 10);
-    const resultado = await interpretarComando(mensagem, categorias || {}, hoje);
-    res.json({ success: true, resultado });
-
-  } catch (err) {
-    console.error(`Erro no assistente (username=${req.body.username}):`, err.message);
-    if (err.response) {
-      console.error('Detalhe da resposta da Anthropic:', JSON.stringify(err.response.data));
-    }
-    res.status(500).json({ error: 'Não consegui entender esse comando. Tenta reformular?' });
   }
 });
 
