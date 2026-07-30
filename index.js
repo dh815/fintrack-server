@@ -103,6 +103,41 @@ app.get('/health', (req, res) => {
 });
 
 // ============================================================
+// DIAGNÓSTICO TEMPORÁRIO — testa só a chave da Anthropic, sem
+// nenhuma outra camada envolvida. Remover depois de resolver.
+// ============================================================
+app.get('/diagnostico/anthropic', async (req, res) => {
+  const axios = require('axios');
+  try {
+    const resp = await axios.post(
+      'https://api.anthropic.com/v1/messages',
+      {
+        model: 'claude-sonnet-4-6',
+        max_tokens: 20,
+        messages: [{ role: 'user', content: 'diga apenas "ok"' }],
+      },
+      {
+        headers: {
+          'x-api-key': process.env.CLAUDE_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        },
+      }
+    );
+    res.json({ sucesso: true, resposta: resp.data.content[0].text });
+  } catch (err) {
+    res.status(err.response ? err.response.status : 500).json({
+      sucesso: false,
+      status: err.response ? err.response.status : null,
+      erroCompleto: err.response ? err.response.data : err.message,
+      chaveComecaCom: (process.env.CLAUDE_API_KEY || '').slice(0, 15),
+      chaveTerminaCom: (process.env.CLAUDE_API_KEY || '').slice(-6),
+      tamanhoChave: (process.env.CLAUDE_API_KEY || '').length,
+    });
+  }
+});
+
+// ============================================================
 // CRIAR LINK DE PAGAMENTO MERCADO PAGO
 // ============================================================
 app.post('/pagamento/criar', limitePagamento, async (req, res) => {
