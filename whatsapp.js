@@ -1,20 +1,19 @@
 const axios = require('axios');
 const { getUserByWhatsApp, getUserData, saveLancamento } = require('./firebase');
 
-// Envia mensagem via WhatsApp (Z-API)
+// Envia mensagem via WhatsApp (Whapi.cloud)
 async function enviarMensagem(phone, mensagem) {
-  // TODO: substituir pela sua instância Z-API
-  const ZAPI_INSTANCE = process.env.ZAPI_INSTANCE;
-  const ZAPI_TOKEN = process.env.ZAPI_TOKEN;
+  const WHAPI_TOKEN = process.env.WHAPI_TOKEN;
 
-  if (!ZAPI_INSTANCE || !ZAPI_TOKEN) {
+  if (!WHAPI_TOKEN) {
     console.log(`[WhatsApp Mock] Para ${phone}: ${mensagem}`);
     return;
   }
 
   await axios.post(
-    `https://api.z-api.io/instances/${ZAPI_INSTANCE}/token/${ZAPI_TOKEN}/send-text`,
-    { phone, message: mensagem }
+    `https://gate.whapi.cloud/messages/text?token=${WHAPI_TOKEN}`,
+    { to: phone, body: mensagem },
+    { headers: { accept: 'application/json', 'content-type': 'application/json' } }
   );
 }
 
