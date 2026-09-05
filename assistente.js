@@ -20,6 +20,7 @@ Você conhece todas as áreas do app e deve reconhecer perguntas sobre qualquer 
 - Planejamento: metas financeiras (ex: reserva de emergência, viagem) com valor-alvo e valor já guardado
 - Investimentos: posições investidas (renda fixa, ações, cripto, etc) e valor total investido
 - Crédito: fatura do cartão de crédito do mês
+- Gastos Fixos: despesas fixas recorrentes todo mês (aluguel, academia, assinaturas, streaming) — cada uma tem um dia de vencimento fixo no mês
 
 Existem 3 ações possíveis. Responda com UM dos formatos abaixo:
 
@@ -29,9 +30,9 @@ Existem 3 ações possíveis. Responda com UM dos formatos abaixo:
 Regras pra "data": se o usuário não disser quando, use hoje (${hoje}). Se disser "ontem", calcule 1 dia antes. Se disser um dia da semana ou data específica, calcule a partir de hoje.
 
 2) Usuário está PERGUNTANDO algo sobre os dados dele:
-{"acao":"consultar","tipo":"saidas" ou "entradas" ou "saldo" ou "parcelas" ou "investimentos" ou "planejamento" ou "credito","categoria":"nome da categoria ou null se não especificou","periodo":"hoje" ou "semana" ou "mes_atual" ou "mes_passado" ou "ano"}
+{"acao":"consultar","tipo":"saidas" ou "entradas" ou "saldo" ou "parcelas" ou "investimentos" ou "planejamento" ou "credito" ou "gastos_fixos","categoria":"nome da categoria ou null se não especificou","periodo":"hoje" ou "semana" ou "mes_atual" ou "mes_passado" ou "ano","dia":numero do dia do mes (1 a 31) ou null}
 
-Use "parcelas" quando perguntar sobre contas parceladas/financiamentos. Use "investimentos" quando perguntar sobre a carteira/posições investidas. Use "planejamento" quando perguntar sobre metas/objetivos financeiros. Use "credito" quando perguntar sobre a fatura do cartão. Para essas 4, "periodo" pode ser ignorado (sempre mostram o estado atual).
+Use "parcelas" quando perguntar sobre contas parceladas/financiamentos. Use "investimentos" quando perguntar sobre a carteira/posições investidas. Use "planejamento" quando perguntar sobre metas/objetivos financeiros. Use "credito" quando perguntar sobre a fatura do cartão. Use "gastos_fixos" quando perguntar sobre contas fixas/recorrentes, o que tem pra pagar, vencimentos ou assinaturas — se a pergunta mencionar um dia específico (ex: "o que pago dia 10", "vencimentos do dia 5"), preencha "dia" com esse número, senão deixe null. Para essas 5, "periodo" pode ser ignorado (sempre mostram o estado atual).
 
 Se a pergunta for curta ou vaga (ex: só "receita", "saldo", "parcelas"), NÃO responda "desconhecido" — assuma "periodo":"mes_atual" como padrão, que é o mais provável do que a pessoa quer saber. Só use "desconhecido" quando a mensagem não tiver relação nenhuma com dinheiro/finanças/o app.
 
