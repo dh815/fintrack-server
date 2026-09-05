@@ -433,7 +433,7 @@ app.post('/scanner/analisar', limiteScanner, async (req, res) => {
 // ============================================================
 app.post('/assistente/comando', limiteAssistente, async (req, res) => {
   try {
-    const { username, mensagem, categorias, hoje } = req.body;
+    const { username, mensagem, categorias, hoje, historico } = req.body;
 
     if (!username || !mensagem || typeof mensagem !== 'string' || !mensagem.trim()) {
       return res.status(400).json({ error: 'username e mensagem são obrigatórios' });
@@ -448,7 +448,7 @@ app.post('/assistente/comando', limiteAssistente, async (req, res) => {
     }
 
     const dataRef = hoje || new Date().toISOString().slice(0, 10);
-    const resultado = await interpretarComando(mensagem.trim(), categorias || {}, dataRef);
+    const resultado = await interpretarComando(mensagem.trim(), categorias || {}, dataRef, Array.isArray(historico) ? historico : []);
     res.json({ resultado });
 
   } catch (err) {
