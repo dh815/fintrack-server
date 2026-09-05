@@ -41,6 +41,7 @@ Acesse console.firebase.google.com → Configurações → Contas de serviço �
 | POST | /pagamento/criar | Cria link de pagamento MP |
 | POST | /webhook/mercadopago | Recebe notificações MP |
 | POST | /webhook/whatsapp | Recebe mensagens WhatsApp |
+| POST | /assistente/comando | Interpreta comando em linguagem natural da Íris (chat do app, exclusivo Pro) |
 | GET | /admin/usuarios | Lista usuários (requer token) |
 
 ## Fluxo de pagamento

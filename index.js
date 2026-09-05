@@ -16,6 +16,7 @@ const {
 const { processarMensagem } = require('./whatsapp');
 const { verificarVencimentos } = require('./lembretes');
 const { analisarImagem } = require('./scanner');
+const { interpretarComando } = require('./assistente');
 const { gerarToken, hashSenha, enviarEmailReset, enviarEmailAssinaturaCancelada } = require('./reset');
 const { senhaConfere, criarTokenLogin } = require('./auth');
 
@@ -54,6 +55,15 @@ const limiteScanner = rateLimit({
   message: { error: 'Limite de escaneamentos atingido. Tente novamente em alguns minutos.' },
 });
 
+// Assistente Íris também gasta crédito da API da Anthropic a cada mensagem
+const limiteAssistente = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas mensagens para a Íris. Tente novamente em alguns minutos.' },
+});
+
 // Recuperação de senha — evita spam de e-mail pro mesmo destinatário
 const limiteSenha = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -88,6 +98,7 @@ app.get('/', (req, res) => {
       'POST /assinatura/cancelar',
       'POST /pagamento/criar',
       'POST /scanner/analisar',
+      'POST /assistente/comando',
       'POST /senha/solicitar',
       'POST /senha/redefinir',
       'POST /conta/excluir',
@@ -410,6 +421,39 @@ app.post('/scanner/analisar', limiteScanner, async (req, res) => {
   } catch (err) {
     console.error(`Erro no scanner (username=${req.body.username}, tipo=${req.body.tipo}):`, err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// ASSISTENTE ÍRIS — interpreta comandos em linguagem natural do chat
+// dentro do app (registrar lançamentos, consultar saldo/gastos/etc).
+// Exclusivo do plano Pro. O servidor só interpreta o comando; quem
+// executa a ação (salvar lançamento, calcular saldo) é o app, que já
+// tem os dados do usuário carregados.
+// ============================================================
+app.post('/assistente/comando', limiteAssistente, async (req, res) => {
+  try {
+    const { username, mensagem, categorias, hoje } = req.body;
+
+    if (!username || !mensagem || typeof mensagem !== 'string' || !mensagem.trim()) {
+      return res.status(400).json({ error: 'username e mensagem são obrigatórios' });
+    }
+
+    const user = await getUser(username);
+    if (!user) {
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+    if (user.role !== 'pro' && user.role !== 'admin') {
+      return res.status(403).json({ error: 'A Íris é exclusiva do plano Pro' });
+    }
+
+    const dataRef = hoje || new Date().toISOString().slice(0, 10);
+    const resultado = await interpretarComando(mensagem.trim(), categorias || {}, dataRef);
+    res.json({ resultado });
+
+  } catch (err) {
+    console.error(`Erro no assistente Íris (username=${req.body.username}):`, err.message);
+    res.status(500).json({ error: 'Não consegui entender agora. Tente novamente.' });
   }
 });
 
