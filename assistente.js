@@ -2,7 +2,7 @@ const axios = require('axios');
 
 // Interpreta um comando em linguagem natural (texto, já vindo de fala ou digitado)
 // e devolve um JSON estruturado dizendo o que o app deve fazer.
-async function interpretarComando(mensagem, categorias, hoje) {
+async function interpretarComando(mensagem, categorias, hoje, historico) {
   const catsEntrada = (categorias && categorias.entrada) || [];
   const catsSaida = (categorias && categorias.saida) || [];
 
@@ -35,6 +35,7 @@ Regras pra "data": se o usuário não disser quando, use hoje (${hoje}). Se diss
 Use "parcelas" quando perguntar sobre contas parceladas/financiamentos. Use "investimentos" quando perguntar sobre a carteira/posições investidas. Use "planejamento" quando perguntar sobre metas/objetivos financeiros. Use "credito" quando perguntar sobre a fatura do cartão. Use "gastos_fixos" quando perguntar sobre contas fixas/recorrentes, o que tem pra pagar, vencimentos ou assinaturas — se a pergunta mencionar um dia específico (ex: "o que pago dia 10", "vencimentos do dia 5"), preencha "dia" com esse número, senão deixe null. Para essas 5, "periodo" pode ser ignorado (sempre mostram o estado atual).
 
 Se a pergunta for curta ou vaga (ex: só "receita", "saldo", "parcelas"), NÃO responda "desconhecido" — assuma "periodo":"mes_atual" como padrão, que é o mais provável do que a pessoa quer saber. Só use "desconhecido" quando a mensagem não tiver relação nenhuma com dinheiro/finanças/o app.
+Você também recebe, antes da mensagem atual, as últimas mensagens da conversa (quando existirem). Use esse histórico para interpretar corretamente respostas curtas, correções ou complementos — por exemplo, se a mensagem atual for só uma correção do tipo "não, do variável" ou "errado, isso é dia 15" referente à sua resposta anterior, ajuste a interpretação com base no que já foi discutido em vez de tratar a mensagem isolada como "desconhecido".
 
 3) Não deu pra entender o comando:
 {"acao":"desconhecido","motivo":"explicação breve e profissional do que faltou, no tom da Íris"}
@@ -47,7 +48,12 @@ Responda SOMENTE com o JSON.`;
       model: 'claude-sonnet-4-6',
       max_tokens: 300,
       system: systemPrompt,
-      messages: [{ role: 'user', content: mensagem }],
+      messages: [].concat(
+                (Array.isArray(historico) ? historico.slice(-8) : []).map(function(m){
+                            return { role: (m && m.role === 'assistant') ? 'assistant' : 'user', content: String((m && m.content) || '').slice(0, 500) };
+                }),
+                [{ role: 'user', content: mensagem }]
+              ),
     },
     {
       headers: {
