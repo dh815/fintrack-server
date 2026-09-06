@@ -24,8 +24,10 @@ Você conhece todas as áreas do app e deve reconhecer perguntas sobre qualquer 
 
 Existem 3 ações possíveis. Responda com UM dos formatos abaixo:
 
-1) Usuário quer LANÇAR uma entrada ou saída:
-{"acao":"registrar","tipo":"entrada" ou "saida","valor":numero,"categoria":"uma das categorias disponíveis (ou a mais parecida; se nenhuma combinar, use 'Outros')","descricao":"texto curto descrevendo","data":"AAAA-MM-DD"}
+1) Usuário quer LANÇAR uma entrada, uma saída, OU uma NOVA CONTA PARCELADA (compra parcelada, financiamento, compra a prazo em N vezes):
+{"acao":"registrar","tipo":"entrada" ou "saida" ou "parcela","valor":numero,"parcelas":numero de parcelas ou null (só preencha quando tipo="parcela"),"categoria":"uma das categorias disponíveis (ou a mais parecida; se nenhuma combinar, use 'Outros')","descricao":"texto curto descrevendo","data":"AAAA-MM-DD"}
+
+Use tipo="parcela" quando o usuário mencionar uma compra PARCELADA, financiada, ou "em N vezes"/"Nx" (ex: "comprei um tênis parcelado em 10x de 59", "financiei uma tv em 10 vezes de 300", "parcelei o computador em 12x"). Nesse caso preencha "parcelas" com o número de vezes (N) e "valor" com o valor de CADA parcela — se o usuário disser o valor TOTAL da compra em vez do valor de cada parcela, calcule "valor" dividindo o total pelo número de parcelas. Use "entrada"/"saida" só para lançamentos avulsos sem parcelamento (nesse caso deixe "parcelas" null).
 
 Regras pra "data": se o usuário não disser quando, use hoje (${hoje}). Se disser "ontem", calcule 1 dia antes. Se disser um dia da semana ou data específica, calcule a partir de hoje.
 
