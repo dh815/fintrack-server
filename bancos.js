@@ -33,6 +33,7 @@ async function buscarMovimentacoes(de, ate, tipoConta) {
   let contas = 0;
   for (const itemId of itens) {
     const ac = await axios.get(BASE + '/accounts', { headers, params: { itemId } });
+    console.log('Pluggy contas do item:', (ac.data.results || []).map((a) => a.type + '/' + (a.subtype || '')).join(', '));
     const lista = (ac.data.results || []).filter((a) => a.type === tipoConta);
     for (const conta of lista) {
       contas++;
@@ -44,6 +45,7 @@ async function buscarMovimentacoes(de, ate, tipoConta) {
         const prox = tr.data.next ? new URLSearchParams(String(tr.data.next).replace(/^.*\?/, '')).get('after') : null;
         after = prox || null;
         voltas++;
+        console.log('Pluggy transações:', conta.type, conta.subtype || '', 'de', de, 'ate', ate, 'recebidas', (tr.data.results || []).length, 'next', tr.data.next ? 'sim' : 'nao', 'chaves', Object.keys(tr.data).join(','));
         for (const t of tr.data.results || []) {
           const valor = Math.abs(parseFloat(t.amount || 0));
           if (!valor) continue;
