@@ -26,14 +26,14 @@ async function obterApiKey() {
   return r.data.apiKey;
 }
 
-async function buscarMovimentacoes(de, ate) {
+async function buscarMovimentacoes(de, ate, tipoConta) {
   const itens = (process.env.PLUGGY_ITEM_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
   const headers = { 'X-API-KEY': await obterApiKey() };
   const out = [];
   let contas = 0;
   for (const itemId of itens) {
     const ac = await axios.get(BASE + '/accounts', { headers, params: { itemId } });
-    const lista = (ac.data.results || []).filter((a) => a.type === 'BANK');
+    const lista = (ac.data.results || []).filter((a) => a.type === tipoConta);
     for (const conta of lista) {
       contas++;
       let page = 1, total = 1;
@@ -46,7 +46,9 @@ async function buscarMovimentacoes(de, ate) {
         for (const t of tr.data.results || []) {
           const valor = Math.abs(parseFloat(t.amount || 0));
           if (!valor) continue;
-          const credito = t.type ? t.type === 'CREDIT' : parseFloat(t.amount) > 0;
+          // Conta: valor positivo = entrada. Cartão: sem o campo type, valor positivo = compra.
+          const positivo = parseFloat(t.amount) > 0;
+          const credito = t.type ? t.type === 'CREDIT' : (tipoConta === 'CREDIT' ? !positivo : positivo);
           out.push({
             fid: 'pluggy:' + t.id,
             date: String(t.date || '').slice(0, 10),
@@ -77,11 +79,11 @@ module.exports = function montarBancos(app) {
       if (!user || user.role !== 'admin') {
         return res.status(403).json({ error: 'Recurso disponível só para a conta administradora.' });
       }
-      const { de, ate } = req.body || {};
+      const { de, ate, tipo } = req.body || {};
       if (!DATA_RE.test(de || '') || !DATA_RE.test(ate || '')) {
         return res.status(400).json({ error: 'Período inválido.' });
       }
-      const r = await buscarMovimentacoes(de, ate);
+      const r = await buscarMovimentacoes(de, ate, tipo === 'cartao' ? 'CREDIT' : 'BANK');
       res.json({ success: true, ...r });
     } catch (err) {
       const st = err.response && err.response.status;
