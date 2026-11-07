@@ -31,12 +31,15 @@ async function buscarMovimentacoes(de, ate, tipoConta) {
   const headers = { 'X-API-KEY': await obterApiKey() };
   const out = [];
   let contas = 0;
+  const cartoes = [];
   for (const itemId of itens) {
     const ac = await axios.get(BASE + '/accounts', { headers, params: { itemId } });
     console.log('Pluggy contas do item:', (ac.data.results || []).map((a) => a.type + '/' + (a.subtype || '')).join(', '));
     const lista = (ac.data.results || []).filter((a) => a.type === tipoConta);
     for (const conta of lista) {
       contas++;
+      const cnome = [conta.marketingName || conta.name, conta.number ? '· final ' + String(conta.number).slice(-4) : ''].filter(Boolean).join(' ').trim();
+      cartoes.push({ id: conta.id, nome: cnome });
       let after = null, voltas = 0;
       do {
         const params = { accountId: conta.id, dateFrom: de, dateTo: ate };
@@ -54,6 +57,8 @@ async function buscarMovimentacoes(de, ate, tipoConta) {
           const credito = t.type ? t.type === 'CREDIT' : (tipoConta === 'CREDIT' ? !positivo : positivo);
           out.push({
             fid: 'pluggy:' + t.id,
+            cid: conta.id,
+            cnome,
             date: String(t.date || '').slice(0, 10),
             desc: String(t.description || t.descriptionRaw || 'Movimentação').trim(),
             val: credito ? valor : -valor,
@@ -63,7 +68,7 @@ async function buscarMovimentacoes(de, ate, tipoConta) {
       } while (voltas < 20);
     }
   }
-  return { movimentacoes: out, contas, itens: itens.length };
+  return { movimentacoes: out, contas, itens: itens.length, cartoes };
 }
 
 function tipoInvestimento(t) {
