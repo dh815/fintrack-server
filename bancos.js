@@ -87,7 +87,7 @@ module.exports = function montarBancos(app) {
       res.json({ success: true, ...r });
     } catch (err) {
       const st = err.response && err.response.status;
-      console.error('Erro ao buscar movimentações do banco:', st || '', err.message);
+      console.error('Erro ao buscar movimentações do banco:', st || '', err.message, (err.config && String(err.config.url || '').replace(/itemId=[^&]*/, 'itemId=…')) || '', JSON.stringify((err.response && err.response.data) || {}).slice(0, 300));
       res.status(502).json({ error: 'Não consegui falar com o serviço do banco agora. Tente de novo em instantes.' });
     }
   });
