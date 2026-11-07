@@ -735,3 +735,7 @@ app.listen(PORT, () => {
 cron.schedule('0 9 * * *', () => {
   verificarVencimentos().catch((err) => console.error('Erro no cron de vencimentos:', err.message));
 }, { timezone: 'America/Sao_Paulo' });
+
+
+// Conexão bancária (Meu Pluggy) — ver bancos.js
+require('./bancos')(app);
