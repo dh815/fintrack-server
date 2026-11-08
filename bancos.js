@@ -33,6 +33,13 @@ async function buscarMovimentacoes(de, ate, tipoConta) {
   let contas = 0;
   const cartoes = [];
   for (const itemId of itens) {
+    try {
+      const it = await axios.get(BASE + '/items/' + itemId, { headers });
+      const d = it.data || {};
+      console.log('Pluggy item:', (d.connector && d.connector.name) || '?', 'status', d.status, 'execucao', d.executionStatus, 'ultima atualizacao', d.lastUpdatedAt, 'atualizado em', d.updatedAt);
+    } catch (e0) {
+      console.log('Pluggy item: nao consegui ler o status', e0.response && e0.response.status);
+    }
     const ac = await axios.get(BASE + '/accounts', { headers, params: { itemId } });
     console.log('Pluggy contas do item:', (ac.data.results || []).map((a) => a.type + '/' + (a.subtype || '')).join(', '));
     const lista = (ac.data.results || []).filter((a) => a.type === tipoConta);
