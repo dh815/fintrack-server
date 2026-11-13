@@ -739,3 +739,6 @@ cron.schedule('0 9 * * *', () => {
 
 // Conexão bancária (Meu Pluggy) — ver bancos.js
 require('./bancos')(app);
+
+// Login com biometria (passkeys) — ver passkey.js
+require('./passkey')(app);
