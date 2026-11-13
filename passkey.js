@@ -1,3 +1,4 @@
+// (build 3)
 // Login com biometria do aparelho (passkeys / WebAuthn).
 // iPhone: Face ID/Touch ID. Android: digital, rosto ou bloqueio de tela.
 // A senha continua funcionando normalmente como alternativa.
